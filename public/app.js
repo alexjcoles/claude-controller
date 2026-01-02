@@ -1,5 +1,8 @@
 // State
 let prData = null;
+let selectedIssues = new Map(); // Map of issueId -> issue data
+let currentQuickFilter = 'all';
+let allParsedIssues = []; // Store all parsed issues for selection
 
 // DOM Elements
 const prForm = document.getElementById('pr-form');
@@ -15,6 +18,10 @@ const reviewersContainer = document.getElementById('reviewers-container');
 const showBotsCheckbox = document.getElementById('show-bots');
 const showAuthorCheckbox = document.getElementById('show-author');
 const reviewerFilter = document.getElementById('reviewer-filter');
+const selectionToolbar = document.getElementById('selection-toolbar');
+const selectionCount = document.getElementById('selection-count');
+const clearSelectionBtn = document.getElementById('clear-selection-btn');
+const copySelectedBtn = document.getElementById('copy-selected-btn');
 
 // Configure marked for markdown parsing
 if (typeof marked !== 'undefined') {
@@ -29,7 +36,28 @@ prForm.addEventListener('submit', handleSubmit);
 toggleTokenBtn.addEventListener('click', toggleTokenVisibility);
 showBotsCheckbox.addEventListener('change', renderReviewers);
 showAuthorCheckbox.addEventListener('change', renderReviewers);
-reviewerFilter.addEventListener('change', renderReviewers);
+reviewerFilter.addEventListener('change', () => {
+  currentQuickFilter = 'all';
+  updateQuickFilterButtons();
+  renderReviewers();
+});
+clearSelectionBtn.addEventListener('click', clearSelection);
+copySelectedBtn.addEventListener('click', copySelectedAsJson);
+
+// Quick filter buttons
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    currentQuickFilter = btn.dataset.filter;
+    updateQuickFilterButtons();
+    renderReviewers();
+  });
+});
+
+function updateQuickFilterButtons() {
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === currentQuickFilter);
+  });
+}
 
 // ==================== ISSUE PARSERS ====================
 
@@ -47,20 +75,10 @@ function detectReviewerType(login) {
 
 /**
  * Parse CodeRabbit comment format
- * CodeRabbit uses emojis and structured text like:
- * "_⚠️ Potential issue_ | _🟠 Major_"
  */
 function parseCodeRabbitComment(body, filePath, line) {
   const issues = [];
 
-  // Pattern for CodeRabbit issue headers
-  // _⚠️ Potential issue_ | _🟠 Major_ or similar patterns
-  const headerPattern = /[_*]*(⚠️|🔴|🟠|🟡|💡|📝|✅)\s*([^_*|]+)[_*]*\s*\|\s*[_*]*(🔴|🟠|🟡|🟢|⚪)\s*([^_*\n]+)[_*]*/gi;
-
-  // Alternative pattern: **Title** with severity in text
-  const altHeaderPattern = /\*\*([^*]+)\*\*/g;
-
-  // Check for severity indicators in the text
   const severityMap = {
     '🔴': 'critical',
     'critical': 'critical',
@@ -77,7 +95,6 @@ function parseCodeRabbitComment(body, filePath, line) {
     'suggestion': 'suggestion',
   };
 
-  // Try to extract severity from the text
   let severity = 'info';
   const severityMatch = body.match(/\|\s*[_*]*(🔴|🟠|🟡|🟢|⚪)?\s*(Critical|Major|Medium|Minor|Low|Info|Warning|Suggestion)[_*]*/i);
   if (severityMatch) {
@@ -86,13 +103,11 @@ function parseCodeRabbitComment(body, filePath, line) {
     severity = severityMap[emoji] || severityMap[text] || 'info';
   }
 
-  // Extract title - first bold text or first line
   let title = '';
   const boldMatch = body.match(/\*\*([^*]+)\*\*/);
   if (boldMatch) {
     title = boldMatch[1].trim();
   } else {
-    // Use first meaningful line as title
     const lines = body.split('\n').filter(l => l.trim() && !l.startsWith('<!--'));
     if (lines.length > 0) {
       title = lines[0].replace(/^[_*⚠️🔴🟠🟡🟢⚪💡📝✅|]+\s*/g, '').trim();
@@ -100,23 +115,16 @@ function parseCodeRabbitComment(body, filePath, line) {
     }
   }
 
-  // Extract description (main body without metadata)
   let description = body
     .replace(/<!-- suggestion_start -->[\s\S]*?<!-- suggestion_end -->/gi, '')
-    .replace(/<!-- fingerprinting[\s\S]*?-->/gi, '')
-    .replace(/<details>[\s\S]*?<\/details>/gi, (match) => {
-      // Keep details blocks but mark them
-      return match;
-    });
+    .replace(/<!-- fingerprinting[\s\S]*?-->/gi, '');
 
-  // Extract code suggestion if present
   let codeSuggestion = null;
   const suggestionMatch = body.match(/```suggestion\n([\s\S]*?)```/);
   if (suggestionMatch) {
     codeSuggestion = suggestionMatch[1];
   }
 
-  // Extract committable suggestion
   const committableMatch = body.match(/<!-- suggestion_start -->([\s\S]*?)<!-- suggestion_end -->/i);
   if (committableMatch) {
     const suggestionContent = committableMatch[1];
@@ -142,15 +150,10 @@ function parseCodeRabbitComment(body, filePath, line) {
 
 /**
  * Parse Cursor/Bugbot comment format
- * Uses HTML comments for metadata like:
- * <!-- **Low Severity** -->
- * <!-- DESCRIPTION START --> ... <!-- DESCRIPTION END -->
- * <!-- LOCATIONS START ... LOCATIONS END -->
  */
 function parseCursorComment(body, filePath, line) {
   const issues = [];
 
-  // Extract severity from HTML comments
   let severity = 'info';
   const severityMatch = body.match(/<!--\s*\*\*(Critical|High|Major|Medium|Low|Minor|Info)\s*Severity\*\*\s*-->/i);
   if (severityMatch) {
@@ -162,35 +165,30 @@ function parseCursorComment(body, filePath, line) {
     else severity = 'info';
   }
 
-  // Extract title from ### headers
   let title = '';
   const titleMatch = body.match(/###\s+([^\n]+)/);
   if (titleMatch) {
     title = titleMatch[1].trim();
   }
 
-  // Extract description from DESCRIPTION comments
   let description = body;
   const descMatch = body.match(/<!-- DESCRIPTION START -->([\s\S]*?)<!-- DESCRIPTION END -->/i);
   if (descMatch) {
     description = descMatch[1].trim();
   }
 
-  // Extract locations
   let locations = [];
   const locMatch = body.match(/<!-- LOCATIONS START\n([\s\S]*?)\nLOCATIONS END -->/i);
   if (locMatch) {
     locations = locMatch[1].trim().split('\n').filter(l => l.trim());
   }
 
-  // Clean up the description - remove metadata comments
   description = description
     .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<a[^>]*>[\s\S]*?<\/a>/gi, '') // Remove fix buttons
+    .replace(/<a[^>]*>[\s\S]*?<\/a>/gi, '')
     .replace(/<picture>[\s\S]*?<\/picture>/gi, '')
     .trim();
 
-  // If no title found, use first line of description
   if (!title && description) {
     const firstLine = description.split('\n')[0];
     title = firstLine.length > 80 ? firstLine.substring(0, 80) + '...' : firstLine;
@@ -212,29 +210,18 @@ function parseCursorComment(body, filePath, line) {
 
 /**
  * Parse Claude comment format
- * Claude typically uses markdown with numbered sections like:
- * 1. **CRITICAL: Title** or ## Section headers
  */
 function parseClaudeComment(body, filePath, line) {
   const issues = [];
 
-  // Try to split by numbered sections or headers
-  const sectionPatterns = [
-    /(\d+)\.\s*\*\*(CRITICAL|MAJOR|HIGH|MEDIUM|LOW|MINOR|WARNING|INFO)?:?\s*([^*]+)\*\*/gi,
-    /##\s*(\d+\.?\s*)?(CRITICAL|MAJOR|HIGH|MEDIUM|LOW|MINOR)?:?\s*([^\n]+)/gi,
-  ];
-
-  // First, try to find numbered issues
   const numberedPattern = /(\d+)\.\s*\*\*(CRITICAL|MAJOR|HIGH|MEDIUM|LOW|MINOR|WARNING)?:?\s*([^*]+)\*\*([\s\S]*?)(?=\n\d+\.\s*\*\*|\n##|\n---|\$)/gi;
   let match;
   let foundIssues = false;
 
-  // Clone body for parsing
-  let workingBody = body + '\n---'; // Add end marker
+  let workingBody = body + '\n---';
 
   while ((match = numberedPattern.exec(workingBody)) !== null) {
     foundIssues = true;
-    const num = match[1];
     const severityText = (match[2] || 'info').toLowerCase();
     const title = match[3].trim();
     const content = match[4].trim();
@@ -245,7 +232,6 @@ function parseClaudeComment(body, filePath, line) {
     else if (severityText.includes('medium') || severityText.includes('warning')) severity = 'medium';
     else if (severityText.includes('minor') || severityText.includes('low')) severity = 'minor';
 
-    // Try to extract file path from content
     let issueFilePath = filePath;
     let issueLine = line;
     const fileMatch = content.match(/\*\*File:?\*\*:?\s*`?([^`\n]+)`?/i) ||
@@ -268,16 +254,13 @@ function parseClaudeComment(body, filePath, line) {
     });
   }
 
-  // If no numbered issues found, treat as single comment
   if (!foundIssues) {
-    // Try to detect severity from content
     let severity = 'info';
     if (body.match(/critical/i)) severity = 'critical';
     else if (body.match(/\bmajor\b|high\s*severity/i)) severity = 'major';
     else if (body.match(/\bmedium\b|warning/i)) severity = 'medium';
     else if (body.match(/\bminor\b|\blow\b/i)) severity = 'minor';
 
-    // Extract title from first header or bold text
     let title = '';
     const headerMatch = body.match(/^##?\s*([^\n]+)/m) || body.match(/\*\*([^*]+)\*\*/);
     if (headerMatch) {
@@ -306,7 +289,6 @@ function parseGenericComment(body, filePath, line) {
   let severity = 'info';
   let title = 'Comment';
 
-  // Try to extract title from first line or bold text
   const boldMatch = body.match(/\*\*([^*]+)\*\*/);
   const headerMatch = body.match(/^#+\s*([^\n]+)/m);
 
@@ -337,7 +319,6 @@ function parseReviewerComments(reviewer) {
   const reviewerType = detectReviewerType(reviewer.login);
   const allIssues = [];
 
-  // Parse review comments (inline code comments)
   for (const review of reviewer.reviews) {
     for (const comment of review.comments) {
       let issues;
@@ -359,11 +340,12 @@ function parseReviewerComments(reviewer) {
         issue.htmlUrl = comment.htmlUrl;
         issue.createdAt = comment.createdAt;
         issue.reviewState = review.state;
+        issue.reviewer = reviewer.login;
+        issue.id = `${reviewer.login}-${comment.id}-${issues.indexOf(issue)}`;
       });
       allIssues.push(...issues);
     }
 
-    // Also parse review body if it exists
     if (review.body && review.body.trim()) {
       let issues;
       switch (reviewerType) {
@@ -385,12 +367,13 @@ function parseReviewerComments(reviewer) {
         issue.createdAt = review.submittedAt;
         issue.reviewState = review.state;
         issue.isReviewBody = true;
+        issue.reviewer = reviewer.login;
+        issue.id = `${reviewer.login}-review-${review.id}-${issues.indexOf(issue)}`;
       });
       allIssues.push(...issues);
     }
   }
 
-  // Parse issue comments (general PR comments)
   for (const comment of reviewer.issueComments) {
     let issues;
     switch (reviewerType) {
@@ -411,11 +394,84 @@ function parseReviewerComments(reviewer) {
       issue.htmlUrl = comment.htmlUrl;
       issue.createdAt = comment.createdAt;
       issue.isIssueComment = true;
+      issue.reviewer = reviewer.login;
+      issue.id = `${reviewer.login}-issue-${comment.id}-${issues.indexOf(issue)}`;
     });
     allIssues.push(...issues);
   }
 
   return allIssues;
+}
+
+// ==================== SELECTION MANAGEMENT ====================
+
+function toggleIssueSelection(issueId, issue) {
+  if (selectedIssues.has(issueId)) {
+    selectedIssues.delete(issueId);
+  } else {
+    selectedIssues.set(issueId, issue);
+  }
+  updateSelectionUI();
+}
+
+function clearSelection() {
+  selectedIssues.clear();
+  updateSelectionUI();
+  // Uncheck all checkboxes
+  document.querySelectorAll('.issue-checkbox').forEach(cb => {
+    cb.checked = false;
+    cb.closest('.issue-card')?.classList.remove('selected');
+  });
+}
+
+function updateSelectionUI() {
+  const count = selectedIssues.size;
+  selectionToolbar.hidden = count === 0;
+  selectionCount.textContent = `${count} issue${count !== 1 ? 's' : ''} selected`;
+
+  // Update card visual states
+  document.querySelectorAll('.issue-card').forEach(card => {
+    const checkbox = card.querySelector('.issue-checkbox');
+    if (checkbox) {
+      const isSelected = selectedIssues.has(checkbox.dataset.issueId);
+      checkbox.checked = isSelected;
+      card.classList.toggle('selected', isSelected);
+    }
+  });
+}
+
+function copySelectedAsJson() {
+  const issues = Array.from(selectedIssues.values()).map(issue => ({
+    reviewer: issue.reviewer,
+    severity: issue.severity,
+    title: issue.title,
+    description: issue.description,
+    filePath: issue.filePath,
+    line: issue.line,
+    codeSuggestion: issue.codeSuggestion || null,
+    url: issue.htmlUrl,
+  }));
+
+  const json = JSON.stringify(issues, null, 2);
+
+  navigator.clipboard.writeText(json).then(() => {
+    showToast(`Copied ${issues.length} issue${issues.length !== 1 ? 's' : ''} to clipboard`);
+  }).catch(err => {
+    console.error('Failed to copy:', err);
+    showToast('Failed to copy to clipboard');
+  });
+}
+
+function showToast(message) {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = message;
+  document.body.appendChild(toast);
+
+  setTimeout(() => toast.remove(), 3000);
 }
 
 // ==================== RENDERING ====================
@@ -440,6 +496,7 @@ async function handleSubmit(e) {
 
   setLoading(true);
   hideError();
+  clearSelection();
 
   try {
     const params = new URLSearchParams({ url });
@@ -490,17 +547,12 @@ function getStateClass(state) {
   return '';
 }
 
-/**
- * Render markdown to HTML safely
- */
 function renderMarkdown(text) {
   if (!text) return '';
 
   try {
-    // Use marked if available
     if (typeof marked !== 'undefined') {
       const html = marked.parse(text);
-      // Sanitize with DOMPurify if available
       if (typeof DOMPurify !== 'undefined') {
         return DOMPurify.sanitize(html, {
           ADD_TAGS: ['details', 'summary'],
@@ -513,7 +565,6 @@ function renderMarkdown(text) {
     console.error('Markdown parsing error:', e);
   }
 
-  // Fallback: basic escaping
   return escapeHtml(text).replace(/\n/g, '<br>');
 }
 
@@ -543,9 +594,9 @@ function renderPRHeader() {
     </h2>
     <div class="pr-meta">
       <span><span class="state-badge ${stateClass}">${prData.state}</span></span>
-      <span>👤 ${escapeHtml(prData.author)}</span>
-      <span>📅 ${formatDate(prData.createdAt)}</span>
-      <span>🔄 ${formatDate(prData.updatedAt)}</span>
+      <span>Author: ${escapeHtml(prData.author)}</span>
+      <span>Created: ${formatDate(prData.createdAt)}</span>
+      <span>Updated: ${formatDate(prData.updatedAt)}</span>
     </div>
   `;
 }
@@ -573,7 +624,7 @@ function renderSummary() {
   summary.innerHTML = `
     <div class="summary-card">
       <div class="number">${reviewers.length}</div>
-      <div class="label">Reviewers (${humans}👤 ${bots}🤖)</div>
+      <div class="label">Reviewers (${humans} humans, ${bots} bots)</div>
     </div>
     <div class="summary-card approved">
       <div class="number">${approvals}</div>
@@ -609,9 +660,9 @@ function populateReviewerFilter() {
     const option = document.createElement('option');
     option.value = reviewer.login;
     const badges = [];
-    if (reviewer.type === 'Bot') badges.push('🤖');
+    if (reviewer.type === 'Bot') badges.push('Bot');
     if (reviewer.login === prData.author) badges.push('Author');
-    option.textContent = `${reviewer.login}${badges.length ? ' ' + badges.join(' ') : ''}`;
+    option.textContent = `${reviewer.login}${badges.length ? ' (' + badges.join(', ') + ')' : ''}`;
     reviewerFilter.appendChild(option);
   }
 }
@@ -622,6 +673,14 @@ function renderReviewers() {
   const filterReviewer = reviewerFilter.value;
 
   let reviewers = Object.values(prData.reviewers);
+
+  // Apply quick filter
+  if (currentQuickFilter !== 'all') {
+    reviewers = reviewers.filter(r => {
+      const type = detectReviewerType(r.login);
+      return type === currentQuickFilter;
+    });
+  }
 
   if (!showBots) {
     reviewers = reviewers.filter(r => r.type !== 'Bot');
@@ -653,7 +712,27 @@ function renderReviewers() {
     return;
   }
 
+  // Store all parsed issues
+  allParsedIssues = [];
+  reviewers.forEach(r => {
+    allParsedIssues.push(...parseReviewerComments(r));
+  });
+
   reviewersContainer.innerHTML = reviewers.map(renderReviewerColumn).join('');
+
+  // Add event listeners for checkboxes
+  document.querySelectorAll('.issue-checkbox').forEach(checkbox => {
+    checkbox.addEventListener('change', (e) => {
+      const issueId = e.target.dataset.issueId;
+      const issue = allParsedIssues.find(i => i.id === issueId);
+      if (issue) {
+        toggleIssueSelection(issueId, issue);
+      }
+    });
+  });
+
+  // Restore selection state
+  updateSelectionUI();
 }
 
 function renderReviewerColumn(reviewer) {
@@ -665,10 +744,8 @@ function renderReviewerColumn(reviewer) {
   if (isBot) badges.push('<span class="badge badge-bot">BOT</span>');
   if (isAuthor) badges.push('<span class="badge badge-author">AUTHOR</span>');
 
-  // Parse all issues from this reviewer
   const issues = parseReviewerComments(reviewer);
 
-  // Count by severity
   const severityCounts = {
     critical: issues.filter(i => i.severity === 'critical').length,
     major: issues.filter(i => i.severity === 'major').length,
@@ -721,11 +798,10 @@ function getReviewerIcon(type) {
 function renderIssueCard(issue) {
   const severityClass = `severity-${issue.severity}`;
   const severityLabel = issue.severity.charAt(0).toUpperCase() + issue.severity.slice(1);
+  const isSelected = selectedIssues.has(issue.id);
 
-  // File location
   let locationHtml = '';
   if (issue.filePath) {
-    const lineRef = issue.line ? `#L${issue.line}` : '';
     locationHtml = `
       <div class="issue-location">
         📄 ${escapeHtml(issue.filePath)}${issue.line ? `:${issue.line}` : ''}
@@ -733,10 +809,8 @@ function renderIssueCard(issue) {
     `;
   }
 
-  // Render description as markdown
   let descriptionHtml = '';
   if (issue.description) {
-    // Clean up the description - remove raw HTML comments for display
     let cleanDesc = issue.description
       .replace(/<!--[\s\S]*?-->/g, '')
       .replace(/<a[^>]*fix-in-cursor[^>]*>[\s\S]*?<\/a>/gi, '')
@@ -746,7 +820,6 @@ function renderIssueCard(issue) {
     descriptionHtml = `<div class="issue-description">${renderMarkdown(cleanDesc)}</div>`;
   }
 
-  // Code suggestion
   let suggestionHtml = '';
   if (issue.codeSuggestion) {
     suggestionHtml = `
@@ -757,7 +830,6 @@ function renderIssueCard(issue) {
     `;
   }
 
-  // Footer with timestamp and link
   let footerHtml = '';
   if (issue.createdAt || issue.htmlUrl) {
     footerHtml = `
@@ -771,8 +843,9 @@ function renderIssueCard(issue) {
   }
 
   return `
-    <div class="issue-card">
+    <div class="issue-card ${isSelected ? 'selected' : ''}">
       <div class="issue-card-header">
+        <input type="checkbox" class="issue-checkbox" data-issue-id="${issue.id}" ${isSelected ? 'checked' : ''}>
         <span class="severity-badge ${severityClass}">${severityLabel}</span>
         <span class="issue-title" title="${escapeHtml(issue.title)}">${escapeHtml(issue.title)}</span>
       </div>

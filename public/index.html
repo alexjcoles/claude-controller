@@ -49,17 +49,21 @@
 
       <div class="controls">
         <div class="filter-group">
+          <span class="filter-label">Quick Filters:</span>
+          <button type="button" class="filter-btn" data-filter="coderabbit" title="Show CodeRabbit">🐰 CodeRabbit</button>
+          <button type="button" class="filter-btn" data-filter="claude" title="Show Claude">🤖 Claude</button>
+          <button type="button" class="filter-btn" data-filter="cursor" title="Show Cursor">▶️ Cursor</button>
+          <button type="button" class="filter-btn active" data-filter="all" title="Show All">All</button>
+        </div>
+        <div class="filter-group">
           <label>
             <input type="checkbox" id="show-bots" checked>
-            Show Bots
+            Bots
           </label>
           <label>
             <input type="checkbox" id="show-author" checked>
-            Show Author
+            Author
           </label>
-        </div>
-        <div class="filter-group">
-          <label for="reviewer-filter">Filter:</label>
           <select id="reviewer-filter">
             <option value="">All reviewers</option>
           </select>
@@ -69,6 +73,13 @@
       <div class="summary" id="summary"></div>
 
       <div class="reviewers-columns" id="reviewers-container"></div>
+    </div>
+
+    <!-- Selection toolbar -->
+    <div id="selection-toolbar" class="selection-toolbar" hidden>
+      <span id="selection-count">0 issues selected</span>
+      <button type="button" id="clear-selection-btn" class="toolbar-btn">Clear</button>
+      <button type="button" id="copy-selected-btn" class="toolbar-btn primary">Copy as JSON</button>
     </div>
   </div>
 
