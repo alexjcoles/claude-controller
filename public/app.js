@@ -678,6 +678,10 @@ function renderReviewers() {
   if (currentQuickFilter !== 'all') {
     reviewers = reviewers.filter(r => {
       const type = detectReviewerType(r.login);
+      if (currentQuickFilter === 'ai-reviewers') {
+        // Show all 3 AI reviewers: CodeRabbit, Claude, and Cursor
+        return type === 'coderabbit' || type === 'claude' || type === 'cursor';
+      }
       return type === currentQuickFilter;
     });
   }
