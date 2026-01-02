@@ -5,11 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PR Review Dashboard</title>
   <link rel="stylesheet" href="styles.css">
+  <!-- Include marked.js for markdown parsing -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- Include DOMPurify for sanitizing HTML -->
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>🔍 PR Review Dashboard</h1>
+      <h1>PR Review Dashboard</h1>
       <p class="subtitle">View pull request comments organized by reviewer</p>
     </header>
 
@@ -55,7 +59,7 @@
           </label>
         </div>
         <div class="filter-group">
-          <label for="reviewer-filter">Filter by reviewer:</label>
+          <label for="reviewer-filter">Filter:</label>
           <select id="reviewer-filter">
             <option value="">All reviewers</option>
           </select>
@@ -64,7 +68,7 @@
 
       <div class="summary" id="summary"></div>
 
-      <div class="reviewers-grid" id="reviewers-container"></div>
+      <div class="reviewers-columns" id="reviewers-container"></div>
     </div>
   </div>
 
