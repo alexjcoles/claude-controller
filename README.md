@@ -1,6 +1,6 @@
 # PR Review Dashboard
 
-A CLI dashboard for viewing GitHub Pull Request comments organized by reviewer. Perfect for PRs with multiple automated code reviewers where comments can be hard to parse.
+A web and CLI dashboard for viewing GitHub Pull Request comments organized by reviewer. Perfect for PRs with multiple automated code reviewers where comments can be hard to parse.
 
 ## Features
 
@@ -9,6 +9,8 @@ A CLI dashboard for viewing GitHub Pull Request comments organized by reviewer. 
 - **Review State Tracking**: Shows approval status, change requests, and comment counts
 - **Inline Comment Support**: Displays code comments with file paths and line numbers
 - **Flexible Filtering**: Filter by specific reviewers, hide bots, or hide author comments
+- **Web Interface**: Beautiful dark-themed web dashboard
+- **CLI Support**: Command-line interface for terminal users
 
 ## Installation
 
@@ -17,7 +19,30 @@ npm install
 npm run build
 ```
 
-## Usage
+## Web Dashboard
+
+Start the web server:
+
+```bash
+npm run server
+```
+
+Then open http://localhost:3000 in your browser.
+
+You can also pass a PR directly via URL:
+```
+http://localhost:3000?pr=owner/repo#123
+```
+
+### Web Interface Features
+
+- Enter any GitHub PR URL or short format (owner/repo#123)
+- Filter comments by reviewer
+- Toggle bot and author visibility
+- Collapsible reviewer cards
+- Dark theme optimized for readability
+
+## CLI Usage
 
 ### View PR Comments
 

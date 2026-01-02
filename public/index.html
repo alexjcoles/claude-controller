@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PR Review Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+  <!-- Include marked.js for markdown parsing -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- Include DOMPurify for sanitizing HTML -->
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>PR Review Dashboard</h1>
+      <p class="subtitle">View pull request comments organized by reviewer</p>
+    </header>
+
+    <div class="search-box">
+      <form id="pr-form">
+        <div class="input-group">
+          <input
+            type="text"
+            id="pr-url"
+            placeholder="Enter PR URL or owner/repo#123"
+            required
+          >
+          <button type="submit" id="fetch-btn">
+            <span class="btn-text">Fetch PR</span>
+            <span class="btn-loading" hidden>Loading...</span>
+          </button>
+        </div>
+        <div class="token-row">
+          <input
+            type="password"
+            id="github-token"
+            placeholder="GitHub Token (optional if set in .env)"
+          >
+          <button type="button" id="toggle-token" class="icon-btn" title="Show/hide token">👁</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="error-message" class="error" hidden></div>
+
+    <div id="pr-content" hidden>
+      <div class="pr-header" id="pr-header"></div>
+
+      <div class="controls">
+        <div class="filter-group">
+          <span class="filter-label">Quick Filters:</span>
+          <button type="button" class="filter-btn" data-filter="ai-reviewers" title="Show CodeRabbit + Claude + Cursor">🤖 AI Reviewers</button>
+          <button type="button" class="filter-btn" data-filter="coderabbit" title="Show CodeRabbit">🐰 CodeRabbit</button>
+          <button type="button" class="filter-btn" data-filter="claude" title="Show Claude">🧠 Claude</button>
+          <button type="button" class="filter-btn" data-filter="cursor" title="Show Cursor">▶️ Cursor</button>
+          <button type="button" class="filter-btn active" data-filter="all" title="Show All">All</button>
+        </div>
+        <div class="filter-group">
+          <label>
+            <input type="checkbox" id="show-bots" checked>
+            Bots
+          </label>
+          <label>
+            <input type="checkbox" id="show-author" checked>
+            Author
+          </label>
+          <select id="reviewer-filter">
+            <option value="">All reviewers</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="summary" id="summary"></div>
+
+      <div class="reviewers-columns" id="reviewers-container"></div>
+    </div>
+
+    <!-- Selection toolbar -->
+    <div id="selection-toolbar" class="selection-toolbar" hidden>
+      <span id="selection-count">0 issues selected</span>
+      <button type="button" id="clear-selection-btn" class="toolbar-btn">Clear</button>
+      <button type="button" id="copy-selected-btn" class="toolbar-btn primary">Copy as JSON</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
